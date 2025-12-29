@@ -1,0 +1,19 @@
+method: bayes
+metric:
+  goal: minimize
+  name: val_loss
+parameters:
+  batch_size:
+    values:
+    - 16
+    - 32
+    - 64
+  epochs:
+    value: 40
+  learning_rate:
+    distribution: uniform
+    max: 1e-4
+    min: 1e-2
+  model_architecture:
+    values:
+    - ComplexNet
