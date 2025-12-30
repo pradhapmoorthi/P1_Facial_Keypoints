@@ -21,8 +21,8 @@ parameters:
     min: 1e-6
     max: 1e-3
 
- dropout:
-   values:[0.3,0.4,0.5]
+  dropout:
+    values: [0.3,0.4,0.5]
 
   model_architecture:
     values: ["ComplexNet"]
