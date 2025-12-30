@@ -6,15 +6,23 @@ metric:
 
 parameters:
   batch_size:
-    values: [16]
+    values: [16,32]
 
   epochs:
-    value: 5
+    value: 30
 
   learning_rate:
     distribution: log_uniform
     min: 1e-4
     max: 2e-3
+
+  weight_decay:
+    distribution: log_uniform
+    min: 1e-6
+    max: 1e-3
+
+ dropout:
+   values:[0.3,0.4,0.5]
 
   model_architecture:
     values: ["ComplexNet"]
