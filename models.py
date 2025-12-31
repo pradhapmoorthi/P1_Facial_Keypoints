@@ -4,25 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as I
 
-class SimpleNet(nn.Module):
-    def __init__(self):
-        super(SimpleNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, 5) # Input 224 -> (224-5+1)=220
-        self.pool1 = nn.MaxPool2d(2, 2)  # 220 -> 110. Output: 16x110x110
-
-        self.conv2 = nn.Conv2d(16, 32, 3) # 110 -> (110-3+1)=108
-        self.pool2 = nn.MaxPool2d(2, 2)  # 108 -> 54. Output: 32x54x54
-
-        # Fully connected layer
-        self.fc1 = nn.Linear(32 * 54 * 54, 68 * 2)
-
-    def forward(self, x):
-        x = self.pool1(F.relu(self.conv1(x)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        x = x.view(x.size(0), -1) # Flatten
-        x = self.fc1(x)
-        return x
-
 class ComplexNet(nn.Module):
     def __init__(self):
         super(ComplexNet, self).__init__()
