@@ -6,7 +6,7 @@ import torch.nn.init as I
 
 class ComplexNet(nn.Module):
     def __init__(self):
-        super(ComplexNet, self).__init__()
+        super().__init__()
         # 1 input image channel (grayscale), 64 output channels/feature maps, 3x3 square convolution kernel
         self.conv1_1 = nn.Conv2d(1, 64, 3, padding=1)
         self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)
@@ -74,7 +74,7 @@ class ComplexNet(nn.Module):
 class Net(nn.Module):
 
     def __init__(self):
-        super(Net, self).__init__()
+        super().__init__()
         
         ## TODO: Define all the layers of this CNN, the only requirements are:
         ## 1. This network takes in a square (same width and height), grayscale image as input
@@ -160,7 +160,7 @@ class Net(nn.Module):
 class MediumNet(nn.Module):
 
     def __init__(self):
-        super(MediumNet, self).__init__()
+        super().__init__()
         
         ## TODO: Define all the layers of this CNN, the only requirements are:
         ## 1. This network takes in a square (same width and height), grayscale image as input
