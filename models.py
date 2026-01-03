@@ -100,11 +100,11 @@ class Net(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 		
 		# Dropout (for all)	
-        self.drop_1 = nn.Dropout(0.1)
-        self.drop_2 = nn.Dropout(0.2)
-        self.drop_3 = nn.Dropout(0.3)
-        self.drop_4 = nn.Dropout(0.4)
-        self.drop_5 = nn.Dropout(0.5)
+        #self.drop_1 = nn.Dropout(0.1)
+        #self.drop_2 = nn.Dropout(0.2)
+        #self.drop_3 = nn.Dropout(0.3)
+        #self.drop_4 = nn.Dropout(0.4)
+        #self.drop_5 = nn.Dropout(0.5)
         self.drop_6 = nn.Dropout(0.6)
 		
 		# Fully Connected Layers (fc)
