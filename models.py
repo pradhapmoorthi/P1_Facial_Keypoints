@@ -99,13 +99,16 @@ class Net(nn.Module):
 		# Maxpooling Layer	(for all)	
         self.pool = nn.MaxPool2d(2, 2)
 		
-		# Dropout
-        #self.drop_4 = nn.Dropout(0.4)
-        #self.drop_5 = nn.Dropout(0.5)
+		# Dropout (for all)
+		self.drop_1 = nn.Dropout(0.1)
+        self.drop_2 = nn.Dropout(0.2)
+        self.drop_3 = nn.Dropout(0.3)
+        self.drop_4 = nn.Dropout(0.4)
+        self.drop_5 = nn.Dropout(0.5)
         self.drop_6 = nn.Dropout(0.6)
 		
 		# Fully Connected Layers (fc)
-        self.fc_1 = nn.Linear(in_features = 173056, out_features = 1000)  #torch.Size([10, 36864]) => in_features:  = 36864
+        self.fc_1 = nn.Linear(in_features = 173056, out_features = 1000)  
         self.fc_2 = nn.Linear(in_features = 1000, out_features =  1000)  
         self.fc_3 = nn.Linear(in_features =  1000, out_features =   136)    #68 keypoints with x and y coordinate => out_features: 136
 		
