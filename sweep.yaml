@@ -6,7 +6,7 @@ metric:
 
 parameters:
   batch_size:
-    values: [16,32]
+    values: [32]
 
   epochs:
     value: 30
@@ -25,4 +25,4 @@ parameters:
     values: [0.3,0.4,0.5]
 
   model_architecture:
-    values: ["ComplexNet"]
+    values: ["Net"]
