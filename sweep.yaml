@@ -22,7 +22,7 @@ parameters:
     max: 0.001
 
   dropout:
-    values: [0.3,0.4,0.5]
+    values: [0.3]
 
   model_architecture:
     values: ["Net"]
