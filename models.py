@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 
-class KeypointCNN(nn.Module):
+class Net(nn.Module):
     def __init__(self, n_out=136, in_ch=1):
         super().__init__()
         self.conv1 = nn.Sequential(
