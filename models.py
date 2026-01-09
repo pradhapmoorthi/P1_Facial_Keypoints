@@ -1,51 +1,37 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.nn.init as I
 
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
+        # 1 x 96 x 96
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=4, stride=1, padding=1)   # -> 32 x 95 x 95
+        self.bn1   = nn.BatchNorm2d(32)
+        self.pool  = nn.MaxPool2d(2, 2)                                     # -> 32 x 47 x 47
 
-        # Convolutional stack with padding to stabilize shapes
-        self.conv_1 = nn.Conv2d(1, 32, kernel_size=5, padding=2)  # 224x224 -> 224x224 before pool
-        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)  # -> 64 x 47 x 47
+        self.bn2   = nn.BatchNorm2d(64)                                     # -> 64 x 23 x 23
 
-        self.conv_2 = nn.Conv2d(32, 64, kernel_size=3, padding=1) # keep size pre-pool
-        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1) # -> 128 x 23 x 23
+        self.bn3   = nn.BatchNorm2d(128)                                    # -> 128 x 11 x 11
 
-        self.conv_3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1)# -> 256 x 11 x 11
+        self.bn4   = nn.BatchNorm2d(256)                                    # -> 256 x 5 x 5
 
-        # Use your conv_4 meaningfully
-        self.conv_4 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(256)
+        self.drop  = nn.Dropout(p=0.4)
 
-        self.pool = nn.MaxPool2d(2, 2)               # 224->112->56->28
-        self.gap  = nn.AdaptiveAvgPool2d((1, 1))     # 256 x 1 x 1
-        self.drop = nn.Dropout(0.25)
-
-        # Small head (far fewer params than 173k->1000->1000)
-        self.fc_1 = nn.Linear(256, 128)
-        self.fc_2 = nn.Linear(128, 136)
-
-        # Kaiming init (optional but recommended)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                I.kaiming_normal_(m.weight, nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            if isinstance(m, nn.Linear):
-                I.kaiming_normal_(m.weight, nonlinearity='relu')
-                nn.init.zeros_(m.bias)
+        self.fc1   = nn.Linear(256 * 5 * 5, 1000)
+        self.fc2   = nn.Linear(1000, 136)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.bn1(self.conv_1(x))))  # 224 -> 112
-        x = self.pool(F.relu(self.bn2(self.conv_2(x))))  # 112 -> 56
-        x = self.pool(F.relu(self.bn3(self.conv_3(x))))  # 56  -> 28
-        x = F.relu(self.bn4(self.conv_4(x)))             # 28 stays 28
-        x = self.gap(x)                                  # -> 1x1
-        x = torch.flatten(x, 1)                          # 256
-        x = self.drop(F.relu(self.fc_1(x)))
-        x = self.fc_2(x)                                 # 136
+        # x: (B, 1, 96, 96)
+        x = self.pool(F.relu(self.bn1(self.conv1(x))))  # (B, 32, 47, 47)
+        x = self.pool(F.relu(self.bn2(self.conv2(x))))  # (B, 64, 23, 23)
+        x = self.pool(F.relu(self.bn3(self.conv3(x))))  # (B, 128, 11, 11)
+        x = self.pool(F.relu(self.bn4(self.conv4(x))))  # (B, 256, 5, 5)
+
+        x = x.view(x.size(0), -1)                       # (B, 256*5*5)
+        x = self.drop(F.relu(self.fc1(x)))
+        x = self.fc2(x)                                 # (B, 136)
         return x
