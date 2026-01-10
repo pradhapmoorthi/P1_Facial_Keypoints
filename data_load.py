@@ -1,12 +1,24 @@
-import glob
-import os
 import torch
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
-import matplotlib.image as mpimg
 import pandas as pd
+import numpy as np
+from PIL import Image
 import cv2
+import math
+import os
 
+# Helper functions for displaying keypoints
+def show_keypoints_batch(image_batch, keypoints_batch):
+    """Display image with keypoints for a batch."""
+    for i in range(image_batch.shape[0]):
+        image = image_batch[i].numpy()
+        key_pts = keypoints_batch[i].numpy()
+
+        plt.figure(figsize=(2, 2))
+        plt.imshow(image.squeeze(), cmap='gray')
+        plt.scatter(key_pts[:, 0], key_pts[:, 1], s=20, marker='.', c='m')
+        plt.title(f'Sample {i}')
+        plt.axis('off')
+    plt.show()
 
 class FacialKeypointsDataset(Dataset):
     """Face Landmarks dataset."""
@@ -27,48 +39,43 @@ class FacialKeypointsDataset(Dataset):
         return len(self.key_pts_frame)
 
     def __getitem__(self, idx):
-        image_name = os.path.join(self.root_dir,
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        img_name = os.path.join(self.root_dir,
                                 self.key_pts_frame.iloc[idx, 0])
         
-        image = mpimg.imread(image_name)
+        # Load image as PIL Image
+        image = Image.open(img_name).convert('L') # Convert to grayscale directly
         
-        # if image has an alpha color channel, get rid of it
-        if(image.shape[2] == 4):
-            image = image[:,:,0:3]
-        
-        key_pts = self.key_pts_frame.iloc[idx, 1:].values
+        key_pts = self.key_pts_frame.iloc[idx, 1:].to_numpy()
         key_pts = key_pts.astype('float').reshape(-1, 2)
+
         sample = {'image': image, 'keypoints': key_pts}
 
         if self.transform:
             sample = self.transform(sample)
 
         return sample
-    
 
-    
-# tranforms
+
+# -- Transforms -- #
 
 class Normalize(object):
-    """Convert a color image to grayscale and normalize the color range to [0,1]."""        
+    """Convert a color image to grayscale and normalize the color range to [0,1]."""
 
     def __call__(self, sample):
         image, key_pts = sample['image'], sample['keypoints']
-        
+
+        # If image is PIL, convert to numpy
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+
         image_copy = np.copy(image)
         key_pts_copy = np.copy(key_pts)
 
-        # convert image to grayscale
-        image_copy = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        
-        # scale color range from [0, 255] to [0, 1]
-        image_copy=  image_copy/255.0
-            
-        
-        # scale keypoints to be centered around 0 with a range of [-1, 1]
-        # mean = 100, sqrt = 50, so, pts should be (pts - 100)/50
+        image_copy = image_copy/255.0
         key_pts_copy = (key_pts_copy - 100)/50.0
-
 
         return {'image': image_copy, 'keypoints': key_pts_copy}
 
@@ -88,8 +95,8 @@ class Rescale(object):
 
     def __call__(self, sample):
         image, key_pts = sample['image'], sample['keypoints']
+        w, h = image.size # PIL Image dimensions (width, height)
 
-        h, w = image.shape[:2]
         if isinstance(self.output_size, int):
             if h > w:
                 new_h, new_w = self.output_size * h / w, self.output_size
@@ -100,12 +107,13 @@ class Rescale(object):
 
         new_h, new_w = int(new_h), int(new_w)
 
-        img = cv2.resize(image, (new_w, new_h))
+        # Resize PIL Image
+        image = image.resize((new_w, new_h), Image.BICUBIC)
         
-        # scale the pts, too
+        # Scale keypoints
         key_pts = key_pts * [new_w / w, new_h / h]
 
-        return {'image': img, 'keypoints': key_pts}
+        return {'image': image, 'keypoints': key_pts}
 
 
 class RandomCrop(object):
@@ -126,16 +134,17 @@ class RandomCrop(object):
 
     def __call__(self, sample):
         image, key_pts = sample['image'], sample['keypoints']
+        w, h = image.size # PIL Image dimensions
 
-        h, w = image.shape[:2]
-        new_h, new_w = self.output_size
+        new_w, new_h = self.output_size
 
         top = np.random.randint(0, h - new_h)
         left = np.random.randint(0, w - new_w)
 
-        image = image[top: top + new_h,
-                      left: left + new_w]
+        # Crop PIL Image
+        image = image.crop((left, top, left + new_w, top + new_h))
 
+        # Update keypoints
         key_pts = key_pts - [left, top]
 
         return {'image': image, 'keypoints': key_pts}
@@ -146,16 +155,93 @@ class ToTensor(object):
 
     def __call__(self, sample):
         image, key_pts = sample['image'], sample['keypoints']
-         
-        # if image has no grayscale color channel, add one
-        if(len(image.shape) == 2):
-            # add that third color dim
-            image = image.reshape(image.shape[0], image.shape[1], 1)
-            
-        # swap color axis because
+
+        # if image is PIL, convert to numpy first
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+
+        # if image has 1 channel (grayscale), reshape to (1, H, W)
+        if len(image.shape) == 2:
+            image = image.reshape(1, image.shape[0], image.shape[1])
+        # else, if image has more than 1 channel, change color axis because
         # numpy image: H x W x C
         # torch image: C X H X W
-        image = image.transpose((2, 0, 1))
+        elif len(image.shape) == 3 and image.shape[2] == 3: # RGB
+            image = image.transpose((2, 0, 1))
+
+        return {'image': torch.from_numpy(image).type(torch.FloatTensor),
+                'keypoints': torch.from_numpy(key_pts).type(torch.FloatTensor)}
+
+class RandomRotation(object):
+    """Rotate the image and keypoints by a random degree.
+
+    Args:
+        degrees (float or tuple): Range of degrees to select from.
+            If float, a range (-degrees, +degrees) is used.
+            If tuple, a range (min, max) is used.
+    """
+    def __init__(self, degrees):
+        assert isinstance(degrees, (int, float, tuple))
+        if isinstance(degrees, (int, float)):
+            self.degrees = (-degrees, degrees)
+        else:
+            assert len(degrees) == 2 and isinstance(degrees[0], (int, float)) and isinstance(degrees[1], (int, float))
+            self.degrees = degrees
+
+    def __call__(self, sample):
+        image, key_pts = sample['image'], sample['keypoints']
         
-        return {'image': torch.from_numpy(image),
-                'keypoints': torch.from_numpy(key_pts)}
+        angle = random.uniform(self.degrees[0], self.degrees[1])
+
+        # Rotate PIL image
+        image = image.rotate(angle, resample=Image.BICUBIC, expand=False)
+
+        # Rotate keypoints
+        w, h = image.size
+        center_x, center_y = w / 2, h / 2
+
+        # Convert angle to radians for trigonometric functions
+        angle_rad = -math.radians(angle) # Negative because PIL rotation is counter-clockwise for positive angle
+
+        # Create rotation matrix
+        rotation_matrix = np.array([
+            [math.cos(angle_rad), -math.sin(angle_rad)],
+            [math.sin(angle_rad), math.cos(angle_rad)]
+        ])
+
+        # Translate keypoints to origin (center of image)
+        translated_key_pts = key_pts - np.array([center_x, center_y])
+
+        # Apply rotation
+        rotated_key_pts = np.dot(translated_key_pts, rotation_matrix.T) # .T for row vector multiplication
+
+        # Translate keypoints back
+        rotated_key_pts = rotated_key_pts + np.array([center_x, center_y])
+
+        return {'image': image, 'keypoints': rotated_key_pts}
+
+class RandomHorizontalFlip(object):
+    """Horizontally flip the given PIL Image and keypoints randomly with a given probability.
+    The probability defaults to 0.5.
+    """
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, sample):
+        image, key_pts = sample['image'], sample['keypoints']
+        
+        if random.random() < self.p:
+            # Flip PIL image
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            
+            # Flip keypoints
+            # x_new = width - x_old
+            w, h = image.size
+            key_pts[:, 0] = w - key_pts[:, 0]
+            
+            # Note: For accurate facial landmark flipping, you often need to swap the indices
+            # of left and right keypoints (e.g., left eye with right eye). This implementation
+            # only flips the x-coordinates. If specific index swapping is required by the dataset,
+            # that logic would need to be added here based on the keypoint definition.
+
+        return {'image': image, 'keypoints': key_pts}
