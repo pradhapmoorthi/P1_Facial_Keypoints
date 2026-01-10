@@ -3,8 +3,11 @@ import pandas as pd
 import numpy as np
 from PIL import Image
 import cv2
-import math
-import os
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader # Removed Dataset from here
+from torchvision import transforms, utils
+import random
+import math # Added for rotation calculations
 
 # Helper functions for displaying keypoints
 def show_keypoints_batch(image_batch, keypoints_batch):
@@ -20,7 +23,7 @@ def show_keypoints_batch(image_batch, keypoints_batch):
         plt.axis('off')
     plt.show()
 
-class FacialKeypointsDataset(Dataset):
+class FacialKeypointsDataset(torch.utils.data.Dataset): # Explicitly reference Dataset
     """Face Landmarks dataset."""
 
     def __init__(self, csv_file, root_dir, transform=None):
