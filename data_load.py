@@ -225,27 +225,112 @@ class RandomRotation(object):
         return {'image': image, 'keypoints': rotated_key_pts}
 
 class RandomHorizontalFlip(object):
-    """Horizontally flip the given PIL Image and keypoints randomly with a given probability.
-    The probability defaults to 0.5.
     """
-    def __init__(self, p=0.5):
+    Horizontally flip the given image and keypoints randomly with a given probability.
+
+    This transform supports:
+    - PIL.Image inputs (mode RGB/L/others)
+    - NumPy image arrays with shape (H, W) or (H, W, C)
+    - Facial keypoints as a NumPy array of shape (N, 2)
+
+    For facial keypoints:
+    - x-coordinates are flipped using x' = (w - 1) - x
+    - Optionally swaps left/right landmark indices for common 68-point datasets
+      (dlib/iBUG format) to ensure semantic consistency (e.g., left eye ↔ right eye).
+
+    Args:
+        p (float): probability of applying the flip.
+        swap_lr (bool): if True, swaps left/right keypoint indices for 68-point format.
+                        Set to False if your dataset already accounts for mirroring or
+                        doesn't require index swapping.
+        swap_indices (np.ndarray or list): Optional explicit index mapping for swapping.
+                        If provided, overrides the default 68-point mapping. It should be
+                        a 1-D array/list of length N where new_keypoints[i] = old_keypoints[swap_indices[i]].
+                        If None, and swap_lr=True, uses a default for 68 landmarks.
+
+    Returns:
+        dict: {'image': <same type as input image>, 'keypoints': np.ndarray (N, 2)}
+    """
+    def __init__(self, p=0.5, swap_lr=True, swap_indices=None):
         self.p = p
+        self.swap_lr = swap_lr
+        self.swap_indices = np.array(swap_indices) if swap_indices is not None else None
+
+        # Precompute the default swap mapping for 68 landmarks (dlib/iBUG format, 0-based):
+        # 0-16: jaw (no swap needed; mirroring is handled by x-flip)
+        # 17-21: right eyebrow  ↔  22-26: left eyebrow
+        # 36-41: right eye      ↔  42-47: left eye
+        # Nose (27-35), mouth (48-67) generally don't require index swapping—x-flip suffices.
+        if self.swap_lr and self.swap_indices is None:
+            swap = np.arange(68)
+            # Eyebrows
+            swap[17:22], swap[22:27] = np.arange(22, 27), np.arange(17, 22)
+            # Eyes
+            swap[36:42], swap[42:48] = np.arange(42, 48), np.arange(36, 42)
+            self.default_68_swap = swap
+        else:
+            self.default_68_swap = None
+
+    def _flip_pil(self, image):
+        return image.transpose(Image.FLIP_LEFT_RIGHT)
+
+    def _flip_numpy_image(self, image_np):
+        # image_np shape: (H, W) or (H, W, C)
+        return np.fliplr(image_np)
+
+    def _flip_keypoints(self, key_pts, width):
+        # key_pts shape: (N, 2), float or int
+        flipped = key_pts.copy()
+        # x' = (w - 1) - x  (0-based coordinate system)
+        flipped[:, 0] = (width - 1) - flipped[:, 0]
+        return flipped
+
+    def _maybe_swap_indices(self, key_pts):
+        if self.swap_indices is not None:
+            if len(self.swap_indices) != key_pts.shape[0]:
+                raise ValueError(
+                    f"swap_indices length {len(self.swap_indices)} does not match "
+                    f"number of keypoints {key_pts.shape[0]}"
+                )
+            return key_pts[self.swap_indices]
+        if self.default_68_swap is not None:
+            if key_pts.shape[0] != 68:
+                # Dataset size doesn't match 68; skip swapping to avoid corrupting labels.
+                return key_pts
+            return key_pts[self.default_68_swap]
+        return key_pts
 
     def __call__(self, sample):
         image, key_pts = sample['image'], sample['keypoints']
-        
-        if random.random() < self.p:
-            # Flip PIL image
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            
-            # Flip keypoints
-            # x_new = width - x_old
+
+        # Input validation
+        if not isinstance(key_pts, np.ndarray):
+            key_pts = np.asarray(key_pts, dtype=np.float32)
+        if key_pts.ndim != 2 or key_pts.shape[1] != 2:
+            raise ValueError("keypoints must be a NumPy array of shape (N, 2)")
+
+        # Determine width/height based on image type
+        if isinstance(image, Image.Image):
             w, h = image.size
-            key_pts[:, 0] = w - key_pts[:, 0]
-            
-            # Note: For accurate facial landmark flipping, you often need to swap the indices
-            # of left and right keypoints (e.g., left eye with right eye). This implementation
-            # only flips the x-coordinates. If specific index swapping is required by the dataset,
-            # that logic would need to be added here based on the keypoint definition.
+        elif isinstance(image, np.ndarray):
+            if image.ndim not in (2, 3):
+                raise ValueError("NumPy image must have shape (H, W) or (H, W, C)")
+            h, w = image.shape[:2]
+        else:
+            raise TypeError("image must be a PIL.Image or a NumPy ndarray")
+
+        if random.random() < self.p:
+            # Flip image
+            if isinstance(image, Image.Image):
+                image = self._flip_pil(image)
+            else:
+                image = self._flip_numpy_image(image)
+
+            # Flip keypoints along x
+            key_pts = self._flip_keypoints(key_pts, w)
+
+            # Optional left-right semantic swap
+            if self.swap_lr or self.swap_indices is not None:
+                key_pts = self._maybe_swap_indices(key_pts)
 
         return {'image': image, 'keypoints': key_pts}
