@@ -48,4 +48,3 @@ class Net(nn.Module):
         x = self.drop(F.relu(self.fc1(x)))     # (N, 256)
         x = self.fc2(x)                        # (N, 136)
         return x
-``
