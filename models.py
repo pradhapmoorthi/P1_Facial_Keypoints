@@ -2,49 +2,63 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class Net(nn.Module):
-    def __init__(self, p_drop=0.3):
-        super(Net, self).__init__()
-        
-        # Convolutional layers (same padding to keep dims stable between pools)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)   # (224 -> 224)
-        self.pool1 = nn.MaxPool2d(2, 2)                           # (224 -> 112)
-        
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # (112 -> 112)
-        self.pool2 = nn.MaxPool2d(2, 2)                           # (112 -> 56)
-        
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, padding=1)  # (56 -> 56)
-        self.pool3 = nn.MaxPool2d(2, 2)                           # (56 -> 28)
-        
-        self.conv4 = nn.Conv2d(32, 32, kernel_size=3, padding=1)  # (28 -> 28)
-        self.pool4 = nn.MaxPool2d(2, 2)                           # (28 -> 14)
-        
-        # Flatten dimension after pool4: 32 * 14 * 14 = 6272
-        self.fc1  = nn.Linear(32 * 14 * 14, 256)
-        self.fc2  = nn.Linear(256, 136)  # 68 keypoints * 2
-        
-        self.drop = nn.Dropout(p=p_drop)
+class NetB_GAP(nn.Module):
+    """
+    Net B (32,64,128,256 conv blocks) + Global Avg Pool head for 68 facial keypoints.
+    Input:  N × 1 × H × W  (e.g., 96×96 or 224×224)
+    Output: N × 136  (68 (x,y) pairs), in [-1,1] if use_tanh=True
+    """
 
-        # Optional: good initializations (keeps your style intact)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+    def __init__(self, num_keypoints: int = 68, dropout_p: float = 0.25, use_tanh: bool = True,
+                 norm_layer: str = "bn"):
+        super().__init__()
+        out_dim = 2 * num_keypoints
+        Norm = {
+            "bn": lambda c: nn.BatchNorm2d(c),
+            "gn": lambda c: nn.GroupNorm(32 if c >= 32 else 1, c),
+            "none": lambda c: nn.Identity(),
+        }[norm_layer.lower()]
+
+        def conv_block(cin, cout):
+            return nn.Sequential(
+                nn.Conv2d(cin, cout, kernel_size=3, stride=1, padding=1, bias=False),
+                Norm(cout),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(kernel_size=2, stride=2)
+            )
+
+        # Stem
+        self.stem = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=5, stride=1, padding=2, bias=False),
+            Norm(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2)
+        )
+
+        # Deeper feature extractor
+        self.conv2 = conv_block(32, 64)    # /2
+        self.conv3 = conv_block(64, 128)   # /4
+        self.conv4 = conv_block(128, 256)  # /8
+
+        # Global Average Pool + small MLP head
+        self.gap = nn.AdaptiveAvgPool2d(1)  # -> (N,256,1,1)
+        self.head = nn.Sequential(
+            nn.Flatten(1),                  # -> (N,256)
+            nn.Linear(256, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout_p),
+            nn.Linear(256, out_dim)
+        )
+
+        self.use_tanh = use_tanh
 
     def forward(self, x):
-        # Convolution + ReLU + Pooling
-        x = self.pool1(F.relu(self.conv1(x)))  # (N, 16, 112, 112)
-        x = self.pool2(F.relu(self.conv2(x)))  # (N, 32, 56, 56)
-        x = self.pool3(F.relu(self.conv3(x)))  # (N, 32, 28, 28)
-        x = self.pool4(F.relu(self.conv4(x)))  # (N, 32, 14, 14)
-        
-        # Flatten
-        x = x.view(x.size(0), -1)              # (N, 6272)
-        
-        # Fully connected layers with dropout
-        x = self.drop(F.relu(self.fc1(x)))     # (N, 256)
-        x = self.fc2(x)                        # (N, 136)
+        x = self.stem(x)   # (N,32,H/2,W/2)
+        x = self.conv2(x)  # (N,64,H/4,W/4)
+        x = self.conv3(x)  # (N,128,H/8,W/8)
+        x = self.conv4(x)  # (N,256,H/16,W/16)
+        x = self.gap(x)    # (N,256,1,1)
+        x = self.head(x)   # (N,136)
+        if self.use_tanh:
+            x = torch.tanh(x)
         return x
