@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class NetB_GAP(nn.Module):
+class Net(nn.Module):
     """
     Net B (32,64,128,256 conv blocks) + Global Avg Pool head for 68 facial keypoints.
     Input:  N × 1 × H × W  (e.g., 96×96 or 224×224)
