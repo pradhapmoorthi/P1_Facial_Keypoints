@@ -1,19 +1,31 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-# can use the below import should you choose to initialize the weights of your Net
-import torch.nn.init as I
 from torchvision import models
-from collections import OrderedDict
 
-class resnet18(nn.Module):
+class Net(nn.Module):
     def __init__(self):
-        super(resnet18, self).__init__()
-        self.resnet18 = models.resnet18(pretrained=True)
-        self.resnet18.conv1 = nn.Conv2d(1, 64, kernel_size=(9, 9), stride=(2, 2), padding=(3, 3), bias=False)
+        super(Net, self).__init__()
+
+        # Load pretrained ResNet-18
+        self.resnet18 = models.resnet18(
+            weights=models.ResNet18_Weights.IMAGENET1K_V1
+        )
+
+        # Replace the first conv layer to accept 1-channel grayscale input
+        old_conv = self.resnet18.conv1
+        self.resnet18.conv1 = nn.Conv2d(
+            1, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+
+        # Initialize grayscale conv weights using pretrained RGB weights
+        # Take mean across RGB channels → shape: (64, 1, 7, 7)
+        with torch.no_grad():
+            w = old_conv.weight.data
+            self.resnet18.conv1.weight.data = w.mean(dim=1, keepdim=True)
+
+        # Replace final fully connected layer for 136 keypoints
         n_inputs = self.resnet18.fc.in_features
         self.resnet18.fc = nn.Linear(n_inputs, 136)
-                        
+
     def forward(self, x):
-        x = self.resnet18(x)
-        return x
+        return self.resnet18(x)
